@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lap Timer">
+<meta name="theme-color" content="#14161a">
+<title>FSAE Lap Timer</title>
+<style>
+  :root{
+    --bg:#14161a;
+    --panel:#1e2127;
+    --panel2:#262a32;
+    --line:#3a3f4a;
+    --text:#f2f3f5;
+    --sub:#9aa1ad;
+    --accent:#ffb020;   /* タイミングボード風アンバー */
+    --best:#b57bee;     /* セッションベスト(紫) */
+    --go:#2fbf67;
+    --stop:#e04848;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,monospace;
+    --sans:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--text);font-family:var(--sans);
+    display:flex;flex-direction:column;min-height:100dvh;
+    user-select:none;-webkit-user-select:none;
+  }
+  header{
+    padding:10px 16px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  header h1{font-size:14px;letter-spacing:.12em;color:var(--sub);font-weight:600}
+  header .car{font-family:var(--mono);font-size:14px;color:var(--accent)}
+  main{flex:1;display:flex;flex-direction:column;padding:16px;max-width:760px;width:100%;margin:0 auto}
+
+  /* ---------- 設定画面 ---------- */
+  .setup{display:flex;flex-direction:column;gap:20px;margin-top:8vh}
+  .setup label{font-size:13px;color:var(--sub);display:block;margin-bottom:8px;letter-spacing:.06em}
+  .setup input{
+    width:100%;font-size:28px;font-family:var(--mono);color:var(--text);
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;text-align:center;
+  }
+  .setup input:focus{outline:2px solid var(--accent);border-color:transparent}
+  .hint{font-size:12px;color:var(--sub);line-height:1.6}
+
+  /* ---------- ボタン共通 ---------- */
+  button{
+    font-family:var(--sans);border:none;border-radius:14px;cursor:pointer;
+    color:var(--text);font-weight:700;touch-action:manipulation;
+  }
+  button:active{transform:scale(.985)}
+  .btn-primary{background:var(--go);font-size:22px;padding:20px}
+  .btn-stop{background:var(--stop);font-size:16px;padding:14px 18px}
+  .btn-ghost{background:var(--panel2);border:1px solid var(--line);font-size:14px;padding:12px 16px;color:var(--sub)}
+  .btn-csv{background:var(--panel2);border:1px solid var(--accent);color:var(--accent);font-size:15px;padding:14px 18px}
+
+  /* ---------- 計測画面 ---------- */
+  .clockwrap{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:18px 12px 14px;text-align:center;
+  }
+  .clock{
+    font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:clamp(48px,15vw,84px);line-height:1;color:var(--accent);
+    letter-spacing:.02em;
+  }
+  .status{margin-top:10px;font-family:var(--mono);font-size:15px;color:var(--sub)}
+  .status b{color:var(--text)}
+  .lastlap{margin-top:4px;font-family:var(--mono);font-size:14px;color:var(--sub)}
+  .lastlap .best{color:var(--best);font-weight:700}
+
+  .controls{display:flex;gap:10px;margin:14px 0}
+  .controls .grow{flex:1}
+
+  .sector-btn{
+    width:100%;background:var(--accent);color:#14161a;
+    font-size:34px;letter-spacing:.15em;padding:8vh 0;border-radius:18px;
+    box-shadow:0 4px 0 #b87d0e;
+  }
+  .sector-btn:disabled{background:var(--panel2);color:var(--sub);box-shadow:none}
+
+  /* ---------- テーブル ---------- */
+  .tablewrap{margin-top:16px;overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:var(--panel);color:var(--sub);font-weight:600;font-size:12px;letter-spacing:.08em;position:sticky;top:0}
+  td:first-child,th:first-child{text-align:center;color:var(--sub)}
+  tr.bestlap td{background:rgba(181,123,238,.12)}
+  td.bestcell{color:var(--best);font-weight:700}
+  td.pending{color:var(--sub)}
+  .empty{padding:24px;text-align:center;color:var(--sub);font-size:13px}
+
+  footer{padding:10px 16px 18px;text-align:center;font-size:11px;color:var(--sub)}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FSAE LAP TIMER</h1>
+  <span class="car" id="hdrCar"></span>
+</header>
+
+<main>
+  <!-- ===== 設定画面 ===== -->
+  <section id="setupView" class="setup">
+    <div>
+      <label for="carNo">Car No.(計測対象の車両番号)</label>
+      <input id="carNo" type="text" inputmode="numeric" placeholder="26" maxlength="8">
+    </div>
+    <div>
+      <label for="sectorCount">セクター数(1〜10)</label>
+      <input id="sectorCount" type="number" inputmode="numeric" min="1" max="10" value="3">
+    </div>
+    <button class="btn-primary" id="btnEnter">計測をはじめる</button>
+    <p class="hint">
+      データはブラウザのメモリ上にのみ保持されます。<strong>ページを再読み込みすると記録は消えます。</strong>
+      セッション終了ごとに必ずCSVをダウンロードしてください。
+    </p>
+  </section>
+
+  <!-- ===== 計測画面 ===== -->
+  <section id="timerView" class="hidden">
+    <div class="clockwrap">
+      <div class="clock" id="clock">0:00.000</div>
+      <div class="status" id="status">READY</div>
+      <div class="lastlap" id="lastlap">&nbsp;</div>
+    </div>
+
+    <div class="controls">
+      <button class="btn-primary grow" id="btnStart">スタート</button>
+      <button class="btn-stop hidden" id="btnStop">計測終了</button>
+      <button class="btn-ghost hidden" id="btnUndo">1つ戻す</button>
+    </div>
+
+    <button class="sector-btn hidden" id="btnSector">SECTOR</button>
+
+    <div class="controls">
+      <button class="btn-csv grow" id="btnCsv">CSVダウンロード</button>
+      <button class="btn-ghost" id="btnNew">新規セッション</button>
+    </div>
+
+    <div class="tablewrap">
+      <table id="table">
+        <thead><tr id="theadRow"></tr></thead>
+        <tbody id="tbody"><tr><td class="empty" id="emptyCell">記録なし</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>タイムはメモリ保持のみ / CSVは秒数値(小数3桁)で出力</footer>
+
+<script>
+"use strict";
+
+/* ================= 状態 ================= */
+const S = {
+  carNo: "",
+  nSec: 3,          // セクター数
+  running: false,
+  t0: 0,            // performance.now() 基準
+  elapsed: 0,       // 停止時点の累積(ms)
+  marks: [],        // SECTORボタン押下時点の経過ms(通し)
+  lastTap: 0,       // デバウンス用
+};
+let wakeLock = null;
+let rafId = null;
+
+/* ================= ユーティリティ ================= */
+const $ = id => document.getElementById(id);
+
+function now(){ return S.running ? (performance.now() - S.t0) : S.elapsed; }
+
+function fmt(ms){
+  if (ms == null) return "—";
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const x = Math.floor(ms % 1000);
+  return `${m}:${String(s).padStart(2,"0")}.${String(x).padStart(3,"0")}`;
+}
+function sec(ms){ return (ms / 1000).toFixed(3); }
+
+/* marks配列から周回データを導出する(undo安全) */
+function deriveLaps(){
+  const n = S.nSec, laps = [];
+  const total = S.marks.length;
+  const fullLaps = Math.floor(total / n);
+  const rem = total % n;
+
+  for (let i = 0; i < fullLaps + (rem ? 1 : 0); i++){
+    const sectors = [];
+    for (let j = 0; j < n; j++){
+      const k = i * n + j;
+      if (k >= total){ sectors.push(null); continue; }
+      const prev = k === 0 ? 0 : S.marks[k - 1];
+      sectors.push(S.marks[k] - prev);
+    }
+    const endIdx = (i + 1) * n - 1;
+    const startIdx = i * n - 1;
+    const complete = endIdx < total;
+    const lapMs = complete
+      ? S.marks[endIdx] - (startIdx >= 0 ? S.marks[startIdx] : 0)
+      : null;
+    const cumMs = complete ? S.marks[endIdx] : null;
+    laps.push({ sectors, lapMs, cumMs, complete });
+  }
+  return laps;
+}
+
+function bests(laps){
+  const bestSec = Array(S.nSec).fill(Infinity);
+  let bestLap = Infinity, bestLapIdx = -1;
+  laps.forEach((L, i) => {
+    L.sectors.forEach((t, j) => { if (t != null && t < bestSec[j]) bestSec[j] = t; });
+    if (L.lapMs != null && L.lapMs < bestLap){ bestLap = L.lapMs; bestLapIdx = i; }
+  });
+  return { bestSec, bestLap, bestLapIdx };
+}
+
+/* ================= 描画 ================= */
+function buildHead(){
+  const tr = $("theadRow");
+  tr.innerHTML = "";
+  const cols = ["LAP", ...Array.from({length:S.nSec},(_,i)=>`S${i+1}`), "LAP TIME"];
+  cols.forEach(c => { const th = document.createElement("th"); th.textContent = c; tr.appendChild(th); });
+}
+
+function renderTable(){
+  const laps = deriveLaps();
+  const { bestSec, bestLapIdx } = bests(laps);
+  const tb = $("tbody");
+  tb.innerHTML = "";
+  if (!laps.length){
+    tb.innerHTML = `<tr><td class="empty" colspan="${S.nSec+2}">記録なし</td></tr>`;
+    return;
+  }
+  /* 新しいラップを上に */
+  for (let i = laps.length - 1; i >= 0; i--){
+    const L = laps[i];
+    const tr = document.createElement("tr");
+    if (i === bestLapIdx) tr.className = "bestlap";
+    let html = `<td>${i+1}</td>`;
+    L.sectors.forEach((t, j) => {
+      if (t == null){ html += `<td class="pending">—</td>`; return; }
+      const isBest = t === bestSec[j] && laps.length > 1;
+      html += `<td class="${isBest ? "bestcell" : ""}">${fmt(t)}</td>`;
+    });
+    html += L.lapMs != null
+      ? `<td class="${i === bestLapIdx && laps.length > 1 ? "bestcell" : ""}">${fmt(L.lapMs)}</td>`
+      : `<td class="pending">計測中</td>`;
+    tr.innerHTML = html;
+    tb.appendChild(tr);
+  }
+}
+
+function renderStatus(){
+  const total = S.marks.length;
+  const lap = Math.floor(total / S.nSec) + 1;
+  const secIdx = (total % S.nSec) + 1;
+  $("status").innerHTML = S.running
+    ? `LAP <b>${lap}</b> — S<b>${secIdx}</b> 計測中`
+    : (total ? "停止中" : "READY");
+
+  const laps = deriveLaps().filter(L => L.complete);
+  if (laps.length){
+    const { bestLap } = bests(deriveLaps());
+    const last = laps[laps.length - 1].lapMs;
+    $("lastlap").innerHTML =
+      `LAST <b>${fmt(last)}</b> / BEST <span class="best">${fmt(bestLap)}</span>`;
+  } else {
+    $("lastlap").innerHTML = "&nbsp;";
+  }
+}
+
+function tick(){
+  const t = now();
+  const lapStartIdx = Math.floor(S.marks.length / S.nSec) * S.nSec - 1;
+  const lapStart = lapStartIdx >= 0 ? S.marks[lapStartIdx] : 0;
+  $("clock").textContent = fmt(t - lapStart);   /* 現在ラップの経過タイム */
+  if (S.running) rafId = requestAnimationFrame(tick);
+}
+
+/* ================= 操作 ================= */
+$("btnEnter").addEventListener("click", () => {
+  const car = $("carNo").value.trim();
+  const n = parseInt($("sectorCount").value, 10);
+  if (!car){ alert("Car No. を入力してください。"); return; }
+  if (!(n >= 1 && n <= 10)){ alert("セクター数は1〜10で指定してください。"); return; }
+  S.carNo = car; S.nSec = n;
+  $("hdrCar").textContent = `CAR ${car} / ${n} SECTORS`;
+  buildHead(); renderTable(); renderStatus();
+  $("setupView").classList.add("hidden");
+  $("timerView").classList.remove("hidden");
+});
+
+$("btnStart").addEventListener("click", async () => {
+  S.running = true;
+  S.t0 = performance.now() - S.elapsed;
+  $("btnStart").classList.add("hidden");
+  $("btnStop").classList.remove("hidden");
+  $("btnUndo").classList.remove("hidden");
+  $("btnSector").classList.remove("hidden");
+  renderStatus();
+  rafId = requestAnimationFrame(tick);
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch(e){}
+});
+
+$("btnSector").addEventListener("click", () => {
+  if (!S.running) return;
+  const t = performance.now();
+  if (t - S.lastTap < 250) return;   /* 誤連打防止 */
+  S.lastTap = t;
+  S.marks.push(now());
+  if (navigator.vibrate) navigator.vibrate(30);
+  renderTable(); renderStatus();
+});
+
+$("btnUndo").addEventListener("click", () => {
+  if (!S.marks.length) return;
+  S.marks.pop();
+  renderTable(); renderStatus();
+});
+
+$("btnStop").addEventListener("click", () => {
+  S.elapsed = now();
+  S.running = false;
+  cancelAnimationFrame(rafId);
+  wakeLock?.release?.(); wakeLock = null;
+  $("btnStop").classList.add("hidden");
+  $("btnSector").classList.add("hidden");
+  $("btnStart").classList.remove("hidden");
+  $("btnStart").textContent = "再開";
+  renderStatus();
+});
+
+$("btnNew").addEventListener("click", () => {
+  if (S.marks.length &&
+      !confirm("記録が残っています。CSV未保存のデータは失われますが、新規セッションを開始しますか?")) return;
+  cancelAnimationFrame(rafId);
+  wakeLock?.release?.(); wakeLock = null;
+  Object.assign(S, { running:false, t0:0, elapsed:0, marks:[], lastTap:0 });
+  $("btnStart").textContent = "スタート";
+  $("btnStart").classList.remove("hidden");
+  $("btnStop").classList.add("hidden");
+  $("btnUndo").classList.add("hidden");
+  $("btnSector").classList.add("hidden");
+  $("clock").textContent = "0:00.000";
+  $("timerView").classList.add("hidden");
+  $("setupView").classList.remove("hidden");
+});
+
+/* ================= CSVエクスポート ================= */
+$("btnCsv").addEventListener("click", () => {
+  const laps = deriveLaps();
+  if (!laps.length){ alert("記録がありません。"); return; }
+
+  const head = ["CarNo","Lap",
+    ...Array.from({length:S.nSec},(_,i)=>`Sector${i+1}_s`),
+    "LapTime_s","Cumulative_s"];
+  const rows = [head.join(",")];
+
+  laps.forEach((L, i) => {
+    const cells = [S.carNo, i + 1];
+    L.sectors.forEach(t => cells.push(t == null ? "" : sec(t)));
+    cells.push(L.lapMs == null ? "" : sec(L.lapMs));
+    cells.push(L.cumMs == null ? "" : sec(L.cumMs));
+    rows.push(cells.join(","));
+  });
+
+  const d = new Date();
+  const pad = x => String(x).padStart(2,"0");
+  const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const blob = new Blob(["\uFEFF" + rows.join("\r\n")], { type:"text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `laptime_car${S.carNo}_${stamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* リロードによるデータ消失の警告 */
+window.addEventListener("beforeunload", e => {
+  if (S.marks.length){ e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+</body>
+</html>
