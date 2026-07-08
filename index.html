@@ -270,10 +270,15 @@ function renderStatus(){
 
   const laps = deriveLaps().filter(L => L.complete);
   if (laps.length){
-    const { bestLap } = bests(deriveLaps());
+    const { bestSec, bestLap } = bests(deriveLaps());
     const last = laps[laps.length - 1].lapMs;
+    const theo = bestSec.every(isFinite)
+      ? bestSec.reduce((a, b) => a + b, 0) : null;
+    const avg = laps.reduce((a, L) => a + L.lapMs, 0) / laps.length;
     $("lastlap").innerHTML =
-      `LAST <b>${fmt(last)}</b> / BEST <span class="best">${fmt(bestLap)}</span>`;
+      `LAST <b>${fmt(last)}</b> / BEST <span class="best">${fmt(bestLap)}</span>` +
+      (theo != null ? ` / THEO <span class="best">${fmt(theo)}</span>` : "") +
+      ` / AVG <b>${fmt(avg)}</b>`;
   } else {
     $("lastlap").innerHTML = "&nbsp;";
   }
@@ -373,6 +378,33 @@ $("btnCsv").addEventListener("click", () => {
     cells.push(L.cumMs == null ? "" : sec(L.cumMs));
     rows.push(cells.join(","));
   });
+
+  /* ---- 集計行(Lap列のラベルで識別。分析時はLap列が数値の行だけ抽出すること) ---- */
+  const { bestSec, bestLap, bestLapIdx } = bests(laps);
+  rows.push("");  /* 区切りの空行 */
+
+  /* 各セクターベスト + 理論ベスト(セクターベスト合算)をLapTime_s列に出力 */
+  const sbCells = bestSec.map(t => isFinite(t) ? sec(t) : "");
+  const theo = bestSec.every(isFinite)
+    ? sec(bestSec.reduce((a, b) => a + b, 0)) : "";
+  rows.push([S.carNo, "SECTOR_BEST", ...sbCells, theo, ""].join(","));
+
+  /* 実際のベストラップ(真のラップベスト)とそのセクター内訳 */
+  if (bestLapIdx >= 0){
+    const B = laps[bestLapIdx];
+    rows.push([S.carNo, "LAP_BEST",
+      ...B.sectors.map(t => sec(t)), sec(B.lapMs), sec(B.cumMs)].join(","));
+  }
+
+  /* 平均ラップ(完了ラップのみ対象。セクター別平均とラップタイム平均) */
+  const done = laps.filter(L => L.complete);
+  if (done.length){
+    const avgSec = Array.from({length: S.nSec}, (_, j) =>
+      done.reduce((a, L) => a + L.sectors[j], 0) / done.length);
+    const avgLap = done.reduce((a, L) => a + L.lapMs, 0) / done.length;
+    rows.push([S.carNo, "LAP_AVG",
+      ...avgSec.map(t => sec(t)), sec(avgLap), ""].join(","));
+  }
 
   const d = new Date();
   const pad = x => String(x).padStart(2,"0");
